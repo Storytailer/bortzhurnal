@@ -40,6 +40,14 @@ service cloud.firestore {
       allow delete: if isPilot() && resource.data.uid == request.auth.uid;
     }
 
+    // Позывные: читаются до входа (по ним пилот входит), меняет только сам пилот
+    match /callsigns/{pilot} {
+      allow read: if true;
+      allow write: if isPilot() && ownsPilot(pilot)
+        && request.resource.data.name is string
+        && request.resource.data.name.size() >= 2 && request.resource.data.name.size() <= 16;
+    }
+
     // Отметка о том, что одноразовый ключ заменён паролем
     match /pilots/{uid} {
       allow read, write: if isPilot() && request.auth.uid == uid;

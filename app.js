@@ -13,12 +13,18 @@ const CONFIG = {
 const REMOTE = Boolean(CONFIG.firebase);
 const DEMO = !REMOTE;
 
+// callsign — позывной для первого входа; при первом входе пилот может выбрать себе другой.
 // email — служебный логин пилота в Firebase (письма на него не ходят).
 // key — ключ допуска только для демо; в настоящей версии ключи задаются в консоли Firebase.
 const PILOTS = [
   { id: 'p1', callsign: 'Сокол',  board: '07', email: 'pilot1@bortzhurnal.example', key: 'SOKOL-7731' },
   { id: 'p2', callsign: 'Беркут', board: '21', email: 'pilot2@bortzhurnal.example', key: 'BERKUT-4410' },
 ];
+const DEFAULT_CALLSIGNS = Object.fromEntries(PILOTS.map(p => [p.id, p.callsign]));
+function applyCallsigns(map) {
+  PILOTS.forEach(p => { p.callsign = (map && map[p.id]) || DEFAULT_CALLSIGNS[p.id]; });
+}
+const CALLSIGN_RE = /^[A-Za-zА-Яа-яЁё0-9 -]{2,16}$/;
 
 const RESULTS = {
   refused: { label: 'Отказ диспетчера',     points: 0 },
@@ -125,11 +131,22 @@ function save() {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(db)); } catch (e) { /* см. выше */ }
 }
 const uid = () => Math.random().toString(36).slice(2, 10);
-const seed = () => ({ passwords: { p1: null, p2: null }, session: null, sorties: [], reports: [] });
+const seed = () => ({ passwords: { p1: null, p2: null }, callsigns: {}, session: null, sorties: [], reports: [] });
 
 let db = (DEMO && readStore()) || seed();
 db.reports = db.reports || [];
+db.callsigns = db.callsigns || {};
+applyCallsigns(db.callsigns);
 save();
+
+// «Здравия желаю» показываем после входа и один раз за каждое открытие приложения
+const GREET_KEY = 'bortjournal-greeted';
+function greetedThisSession() {
+  try { return sessionStorage.getItem(GREET_KEY) === db.session; } catch (e) { return false; }
+}
+function markGreeted() {
+  try { sessionStorage.setItem(GREET_KEY, db.session || ''); } catch (e) { /* без хранилища просто покажем ещё раз */ }
+}
 
 async function hashPass(pilotId, pass) {
   const data = new TextEncoder().encode(`bortjournal:${pilotId}:${pass}`);
@@ -192,7 +209,15 @@ function onCloudUser(u) {
   }
   db.session = u.passwordChanged ? pilot.id : null;
   ui.pendingPilot = u.passwordChanged ? null : pilot.id;
+  if (db.session && (ui.justLoggedIn || !greetedThisSession())) ui.greeting = true;
+  ui.justLoggedIn = false;
   render();
+}
+
+function onCloudCallsigns(map) {
+  db.callsigns = map;
+  applyCallsigns(map);
+  if (me()) softRender(); // на экране входа не перерисовываем — там может набираться пароль
 }
 
 async function startCloud() {
@@ -204,6 +229,7 @@ async function startCloud() {
       onUser: onCloudUser,
       onSorties: list => { remote.sorties = list; rebuildFromCloud(); softRender(); },
       onReports: list => { remote.reports = list; rebuildFromCloud(); softRender(); },
+      onCallsigns: onCloudCallsigns,
       onError: onCloudError,
     });
   } catch (e) {
@@ -922,7 +948,11 @@ const ui = {
   logPilot: null,       // чей журнал открыт
   awardsView: 'pilots', // pilots | table | order
   awardsPilot: null,
+  greeting: false,      // экран «Здравия желаю» после входа
+  orderAfterGreeting: false,
+  justLoggedIn: false,
 };
+if (DEMO && db.session && !greetedThisSession()) ui.greeting = true;
 
 function viewBoot() {
   const text = ui.bootError
@@ -938,6 +968,7 @@ function render() {
   if (ui.booting || ui.bootError) app.innerHTML = viewBoot();
   else if (ui.pendingPilot) app.innerHTML = viewSetPassword();
   else if (!pilot) app.innerHTML = viewLogin();
+  else if (ui.greeting) app.innerHTML = viewGreeting(pilot);
   else app.innerHTML = viewShell(pilot);
 
   if (pilot && ui.tab === 'hq' && ui.chartMode === 'chart') drawChart();
@@ -993,9 +1024,10 @@ function viewSetPassword() {
   <main class="login"><div class="login-card">
     ${emblem()}
     <h1 class="wordmark">Первый вылет</h1>
-    <p class="login-sub">Пилот ${esc(p.callsign)}</p>
-    <p class="login-text">Ключ допуска одноразовый. Придумай свой пароль: дальше входишь только по нему.</p>
+    <p class="login-sub">Борт ${esc(p.board)}</p>
+    <p class="login-text">Ключ допуска одноразовый. Выбери себе позывной и придумай пароль: дальше входишь только по ним.</p>
     <form data-form="set-pass">
+      <label class="field"><span>Твой позывной</span><input name="callsign" value="${esc(p.callsign)}" required maxlength="16" autocapitalize="words" autocomplete="username"><small>От 2 до 16 букв или цифр. Его увидит второй пилот.</small></label>
       <label class="field"><span>Новый пароль</span><input name="p1" type="password" minlength="6" required autocomplete="new-password"><small>Минимум 6 символов</small></label>
       <label class="field"><span>Повтори пароль</span><input name="p2" type="password" minlength="6" required autocomplete="new-password"></label>
       <button class="btn btn-primary btn-block">Сохранить и войти</button>
@@ -1006,18 +1038,19 @@ function viewSetPassword() {
 
 async function doLogin(form) {
   const fd = new FormData(form);
-  const cs = String(fd.get('callsign')).trim().toLowerCase();
+  const cs = String(fd.get('callsign')).trim().replace(/\s+/g, ' ').toLowerCase();
   const secret = String(fd.get('secret')).trim();
   const pilot = PILOTS.find(p => p.callsign.toLowerCase() === cs);
   const fail = msg => { ui.loginError = msg; render(); };
   if (!pilot) return fail('Такого позывного нет в эскадрилье');
   if (REMOTE) {
     try {
+      ui.justLoggedIn = true;
       await cloud.signIn(pilot.email, secret);
       ui.loginError = '';
       ui.tab = 'hq';
-      playEngine();
     } catch (e) {
+      ui.justLoggedIn = false;
       fail(authMessage(e));
     }
     return;
@@ -1034,34 +1067,57 @@ async function doLogin(form) {
   ui.loginError = '';
   ui.tab = 'hq';
   db.session = pilot.id;
+  ui.greeting = true;
   save();
   render();
-  playEngine();
+  playFanfare();
 }
 
 async function doSetPass(form) {
   const fd = new FormData(form);
+  const callsign = String(fd.get('callsign') || '').trim().replace(/\s+/g, ' ');
   const p1 = String(fd.get('p1')), p2 = String(fd.get('p2'));
   const pilot = pilotById(ui.pendingPilot);
+  if (!CALLSIGN_RE.test(callsign)) return toast('Позывной: от 2 до 16 букв, цифр, пробелов или дефисов');
+  if (PILOTS.some(p => p.id !== pilot.id && p.callsign.toLowerCase() === callsign.toLowerCase())) return toast('Этот позывной уже занят другим пилотом');
   if (p1.length < 6) return toast('Пароль: минимум 6 символов');
   if (p1 !== p2) return toast('Пароли не совпадают');
   if (DEMO && p1.toUpperCase() === pilot.key) return toast('Пароль не должен совпадать с ключом');
   if (REMOTE) {
     try {
       await cloud.setPassword(p1);
+      await cloud.saveCallsign(pilot.id, callsign);
     } catch (e) {
       return toast(authMessage(e));
     }
   } else {
     db.passwords[pilot.id] = await hashPass(pilot.id, p1);
   }
+  db.callsigns = { ...db.callsigns, [pilot.id]: callsign };
+  applyCallsigns(db.callsigns);
   db.session = pilot.id;
   ui.pendingPilot = null;
   ui.tab = 'hq';
-  ui.showOrder = true;
+  ui.greeting = true;
+  ui.orderAfterGreeting = true;
   save();
   render();
   playFanfare();
+}
+
+/* ---------- Здравия желаю ---------- */
+function viewGreeting(pilot) {
+  const st = stats(pilot.id), n = daysLeft();
+  return `<main class="login greet">
+    <div class="greet-card">
+      <div class="greet-stage">${RAYS}${emblem()}</div>
+      <p class="greet-kicker">${rank(st.points)} · борт ${esc(pilot.board)}</p>
+      <h1 class="greet-title">Здравия желаю,</h1>
+      <div class="greet-name">товарищ ${esc(pilot.callsign)}!</div>
+      <p class="greet-status">Поражено целей: ${st.hits} из ${CONFIG.goal} · рейтинг ${fmtPts(st.points)}★<br>До конца операции «${esc(CONFIG.operation)}»: ${n} ${plural(n, DAYS_FORMS)}</p>
+      <button class="btn fx-serve greet-go" data-action="greet-go">Приступить к боевой задаче</button>
+    </div>
+  </main>`;
 }
 
 async function doChangePass(form) {
@@ -1882,11 +1938,24 @@ document.addEventListener('click', e => {
     case 'reload':
       location.reload();
       break;
+    case 'greet-go':
+      markGreeted();
+      ui.greeting = false;
+      ui.tab = 'hq';
+      if (ui.orderAfterGreeting) {
+        ui.orderAfterGreeting = false;
+        ui.showOrder = true;
+      }
+      render();
+      window.scrollTo(0, 0);
+      playEngine();
+      break;
     case 'reset-demo':
       if (!confirmTwice(el, 'Точно сбросить?')) break;
       db = seed();
+      applyCallsigns({});
       save();
-      Object.assign(ui, { tab: 'hq', editing: null, showOrder: false, logPilot: null, selected: todayISO(), month: todayISO().slice(0, 7) });
+      Object.assign(ui, { tab: 'hq', editing: null, showOrder: false, greeting: false, logPilot: null, selected: todayISO(), month: todayISO().slice(0, 7) });
       render();
       toast('Демо сброшено');
       break;

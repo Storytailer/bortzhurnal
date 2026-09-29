@@ -11,11 +11,19 @@ import {
 
 let auth, store, unsubs = [];
 
-// onUser(null | { uid, email, passwordChanged }), onSorties(все вылеты), onReports(все рапорты), onError(ошибка)
-export function init(config, { onUser, onSorties, onReports, onError }) {
+// onUser(null | { uid, email, passwordChanged }), onSorties(все вылеты), onReports(все рапорты),
+// onCallsigns({ p1: 'позывной', ... }), onError(ошибка)
+export function init(config, { onUser, onSorties, onReports, onCallsigns, onError }) {
   const app = initializeApp(config);
   auth = getAuth(app);
   store = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
+
+  // Позывные нужны ещё до входа: по ним пилот входит
+  onSnapshot(
+    collection(store, 'callsigns'),
+    snap => onCallsigns(Object.fromEntries(snap.docs.map(d => [d.id, d.data().name]))),
+    onError,
+  );
 
   onAuthStateChanged(auth, async user => {
     unsubs.forEach(stop => stop());
@@ -41,6 +49,8 @@ export async function setPassword(password) {
   await updatePassword(auth.currentUser, password);
   await setDoc(doc(store, 'pilots', auth.currentUser.uid), { passwordSetAt: serverTimestamp() });
 }
+
+export const saveCallsign = (pilot, name) => setDoc(doc(store, 'callsigns', pilot), { name, uid: auth.currentUser.uid });
 
 export const saveSortie = s => setDoc(doc(store, 'sorties', s.id), { ...s, uid: auth.currentUser.uid });
 export const deleteSortie = id => deleteDoc(doc(store, 'sorties', id));

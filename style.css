@@ -453,6 +453,22 @@ h2 {
 .setting:first-of-type { border-top: 0; padding-top: 0; }
 .demo-panel { border-style: dashed; }
 
+/* ================= Здравия желаю ================= */
+.greet {
+  position: relative; overflow: hidden;
+  background: radial-gradient(circle at 50% 38%, rgba(42, 31, 18, .96), rgba(8, 10, 12, .99) 72%);
+  color: #f3eee0;
+}
+.greet-card { position: relative; display: flex; flex-direction: column; align-items: center; text-align: center; max-width: 420px; }
+.greet-stage { position: relative; width: 200px; height: 150px; display: grid; place-items: center; }
+.greet-stage .emblem { position: relative; width: 150px; color: #e8d9b0; animation: pop .6s ease-out .2s both; }
+.greet-stage .fx-rays { animation: spin 26s linear infinite, fadeIn .8s ease-out both; }
+.greet-kicker { margin: 6px 0 0; font-size: 12px; letter-spacing: .22em; text-transform: uppercase; color: #d9c9a0; animation: rise .4s ease-out .3s both; }
+.greet-title { font-family: var(--font-head); font-weight: 400; font-size: 34px; letter-spacing: .06em; text-transform: uppercase; margin: 14px 0 0; line-height: 1.1; animation: rise .5s ease-out .45s both; }
+.greet-name { font-family: var(--font-head); font-size: 28px; color: #ffd27a; margin-top: 6px; overflow-wrap: anywhere; animation: rise .5s ease-out .65s both; }
+.greet-status { margin: 16px 0 0; font-size: 14px; line-height: 1.6; color: rgba(243, 238, 224, .7); animation: rise .5s ease-out .85s both; }
+.greet-go { margin-top: 26px; animation: rise .45s ease-out 1.05s both, pulse 1.8s ease-in-out 1.8s infinite; }
+
 /* ================= Поражённые цели и рапорты ================= */
 .pbar-label { display: flex; justify-content: space-between; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-secondary); margin-bottom: 5px; }
 .pbar-label b { font-family: var(--font-mono); color: var(--text-primary); letter-spacing: 0; }
