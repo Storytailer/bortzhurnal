@@ -7,8 +7,16 @@ const CONFIG = {
   goal: 3,                 // сколько целей нужно поразить
   start: '2026-09-29',     // первый день операции
   deadline: '2026-12-31',  // последний день операции (включительно)
-  // Настройки проекта из консоли Firebase. Пока здесь null, сайт работает как демо (данные в этом браузере).
-  firebase: null,
+  // Настройки проекта из консоли Firebase. Если здесь null, сайт работает как демо (данные в этом браузере).
+  // Это не секрет: такие данные всегда видны в коде сайта, базу защищают правила Firestore и пароли.
+  firebase: {
+    apiKey: 'AIzaSyCSbymupCmtsEIunya-YcdVe_o1FdBPUiA',
+    authDomain: 'bortzhurnal-e5c48.firebaseapp.com',
+    projectId: 'bortzhurnal-e5c48',
+    storageBucket: 'bortzhurnal-e5c48.firebasestorage.app',
+    messagingSenderId: '262988270422',
+    appId: '1:262988270422:web:754d667b7b0c5d7c2524f7',
+  },
 };
 const REMOTE = Boolean(CONFIG.firebase);
 const DEMO = !REMOTE;
