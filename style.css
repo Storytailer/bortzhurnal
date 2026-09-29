@@ -453,6 +453,26 @@ h2 {
 .setting:first-of-type { border-top: 0; padding-top: 0; }
 .demo-panel { border-style: dashed; }
 
+/* ================= Поражённые цели и рапорты ================= */
+.pbar-label { display: flex; justify-content: space-between; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-secondary); margin-bottom: 5px; }
+.pbar-label b { font-family: var(--font-mono); color: var(--text-primary); letter-spacing: 0; }
+.support-link {
+  display: inline-flex; align-items: center; gap: 8px; margin-bottom: 14px; padding: 8px 14px;
+  background: var(--surface-1); border: 1px dashed var(--line-strong); border-radius: 999px;
+  color: var(--text-secondary); font-family: var(--font-body); font-size: 13px; letter-spacing: 0; text-transform: none;
+}
+.support-link:hover { color: var(--text-primary); border-color: var(--accent); }
+.support-link .ic { width: 16px; height: 16px; }
+.report-actions { margin-bottom: 12px; }
+.report-actions .ic { width: 16px; height: 16px; }
+.report { padding: 12px 0; border-top: 1px solid var(--line); }
+.report-meta { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted); }
+.report-text { margin: 6px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.report-ctx { font-size: 12px; color: var(--text-muted); margin: 4px 0 12px; }
+.report-ctx summary { cursor: pointer; }
+.report-ctx pre { white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: 11px; background: var(--surface-2); border-radius: 8px; padding: 8px 10px; margin: 6px 0 0; }
+.report-del { padding: 0; font-size: 13px; }
+
 /* ================= Класс цели ================= */
 .cls-picker { display: flex; flex-wrap: wrap; gap: 6px; }
 .cls-opt {
@@ -663,6 +683,7 @@ h2 {
   .cal-day { min-height: 46px; padding: 4px; }
   .cal-marks .ic { width: 11px; height: 11px; }
   .stamp { top: 14px; right: 10px; font-size: 10px; }
+  .only-wide { display: none; }
   .award-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .tabel-row-wide { grid-template-columns: 1fr; gap: 8px; }
   .tabel-row-wide .tabel-art { justify-content: flex-start; }

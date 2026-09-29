@@ -10,25 +10,34 @@ service cloud.firestore {
         && request.auth.token.email in ['pilot1@bortzhurnal.example', 'pilot2@bortzhurnal.example'];
     }
 
+    // Пилот пишет только от своего имени
+    function ownsPilot(p) {
+      return (p == 'p1' && request.auth.token.email == 'pilot1@bortzhurnal.example')
+          || (p == 'p2' && request.auth.token.email == 'pilot2@bortzhurnal.example');
+    }
+
     function validSortie() {
       let d = request.resource.data;
-      return d.uid == request.auth.uid
+      return d.uid == request.auth.uid && ownsPilot(d.pilot)
         && d.target is string && d.target.size() > 0 && d.target.size() <= 24
         && d.note is string && d.note.size() <= 1000
         && d.result in ['refused', 'recon', 'refuel', 'lowfly', 'hit'];
     }
 
-    // Личный бортжурнал: позывные целей и заметки видит только автор
+    // Бортжурналы: оба пилота читают всё, правит только автор
     match /sorties/{id} {
-      allow read, delete: if isPilot() && resource.data.uid == request.auth.uid;
+      allow read: if isPilot();
       allow create: if isPilot() && validSortie();
       allow update: if isPilot() && resource.data.uid == request.auth.uid && validSortie();
+      allow delete: if isPilot() && resource.data.uid == request.auth.uid;
     }
 
-    // Общее табло: даты, результаты и номера целей без позывных — видят оба пилота
-    match /boards/{uid} {
+    // Рапорты технику: видят оба, удаляет автор
+    match /reports/{id} {
       allow read: if isPilot();
-      allow write: if isPilot() && request.auth.uid == uid;
+      allow create: if isPilot() && request.resource.data.uid == request.auth.uid && ownsPilot(request.resource.data.pilot)
+        && request.resource.data.text is string && request.resource.data.text.size() <= 2000;
+      allow delete: if isPilot() && resource.data.uid == request.auth.uid;
     }
 
     // Отметка о том, что одноразовый ключ заменён паролем

@@ -1,4 +1,4 @@
-/* Связь с Firebase: вход по паролю и хранение бортжурнала в Firestore.
+/* Связь с Firebase: вход по паролю, бортжурналы обоих пилотов и рапорты технику в Firestore.
    Подключается из app.js, только если в CONFIG.firebase указаны настройки проекта. */
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.12.0/firebase-app.js';
 import {
@@ -6,13 +6,13 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.12.0/firebase-auth.js';
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
-  doc, collection, query, where, onSnapshot, setDoc, deleteDoc, getDoc, serverTimestamp,
+  doc, collection, onSnapshot, setDoc, deleteDoc, getDoc, serverTimestamp,
 } from 'https://www.gstatic.com/firebasejs/12.12.0/firebase-firestore.js';
 
 let auth, store, unsubs = [];
 
-// onUser(null | { uid, email, passwordChanged }), onMine(вылеты пилота), onBoards(табло обоих), onError(ошибка)
-export function init(config, { onUser, onMine, onBoards, onError }) {
+// onUser(null | { uid, email, passwordChanged }), onSorties(все вылеты), onReports(все рапорты), onError(ошибка)
+export function init(config, { onUser, onSorties, onReports, onError }) {
   const app = initializeApp(config);
   auth = getAuth(app);
   store = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
@@ -28,16 +28,8 @@ export function init(config, { onUser, onMine, onBoards, onError }) {
       onError(e);
     }
     onUser({ uid: user.uid, email: user.email, passwordChanged });
-    unsubs.push(onSnapshot(
-      query(collection(store, 'sorties'), where('uid', '==', user.uid)),
-      snap => onMine(snap.docs.map(d => d.data())),
-      onError,
-    ));
-    unsubs.push(onSnapshot(
-      collection(store, 'boards'),
-      snap => onBoards(snap.docs.map(d => ({ uid: d.id, ...d.data() }))),
-      onError,
-    ));
+    unsubs.push(onSnapshot(collection(store, 'sorties'), snap => onSorties(snap.docs.map(d => d.data())), onError));
+    unsubs.push(onSnapshot(collection(store, 'reports'), snap => onReports(snap.docs.map(d => d.data())), onError));
   });
 }
 
@@ -53,6 +45,5 @@ export async function setPassword(password) {
 export const saveSortie = s => setDoc(doc(store, 'sorties', s.id), { ...s, uid: auth.currentUser.uid });
 export const deleteSortie = id => deleteDoc(doc(store, 'sorties', id));
 
-// Общее табло: даты, результаты, классы и номера целей — без позывных и заметок
-export const publishBoard = (pilot, sorties) =>
-  setDoc(doc(store, 'boards', auth.currentUser.uid), { pilot, sorties, updatedAt: serverTimestamp() });
+export const saveReport = r => setDoc(doc(store, 'reports', r.id), { ...r, uid: auth.currentUser.uid });
+export const deleteReport = id => deleteDoc(doc(store, 'reports', id));

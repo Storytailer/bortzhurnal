@@ -4,7 +4,7 @@
 const CONFIG = {
   squadron: 'Полночь',
   operation: 'Рубеж',
-  goal: 3,                 // сколько звёзд нужно набрать
+  goal: 3,                 // сколько целей нужно поразить
   start: '2026-09-29',     // первый день операции
   deadline: '2026-12-31',  // последний день операции (включительно)
   // Настройки проекта из консоли Firebase. Пока здесь null, сайт работает как демо (данные в этом браузере).
@@ -29,24 +29,23 @@ const RESULTS = {
 };
 const RESULT_ORDER = ['recon', 'refused', 'refuel', 'lowfly', 'hit'];
 
-// Классы целей — для медалей. Пилот выбирает класс при записи вылета.
+// Классы целей («локации») — для медалей. Пилот выбирает класс при записи вылета.
 const CLASSES = [
   { id: 'pushka', name: 'Пушка', gen: 'Пушки', glyph: 'cannon',   ribbon: ['#8f1d17', '#e8d9b0', '#8f1d17'] },
   { id: 'gaga',   name: 'Гага',  gen: 'Гаги',  glyph: 'duck',     ribbon: ['#4b2f7a', '#ece6f5', '#4b2f7a'] },
   { id: 'zhara',  name: 'Жара',  gen: 'Жары',  glyph: 'flame',    ribbon: ['#f08a24', '#c8332b', '#f08a24'] },
   { id: 'slon',   name: 'Слон',  gen: 'Слона', glyph: 'elephant', ribbon: ['#2f6b43', '#d9c9a0', '#2f6b43'] },
 ];
-// Металл медали за цель зависит от результата вылета
+// Медали за класс: металл по накопленным звёздам в классе (разведка — сталь)
 const DEGREES = [
-  { result: 'hit',    metal: 'gold',   word: 'Взятие',   title: c => `За взятие ${c.gen}` },
-  { result: 'lowfly', metal: 'silver', word: 'Штурм',    title: c => `За штурм ${c.gen}` },
-  { result: 'refuel', metal: 'bronze', word: 'Осада',    title: c => `За осаду ${c.gen}` },
-  { result: 'recon',  metal: 'steel',  word: 'Разведка', title: c => `За разведку ${c.gen}` },
+  { result: 'hit',    metal: 'gold',   need: 1,    word: 'Взятие',   title: c => `За взятие ${c.gen}` },
+  { result: 'lowfly', metal: 'silver', need: 0.5,  word: 'Штурм',    title: c => `За штурм ${c.gen}` },
+  { result: 'refuel', metal: 'bronze', need: 0.25, word: 'Осада',    title: c => `За осаду ${c.gen}` },
+  { result: 'recon',  metal: 'steel',  need: 0,    word: 'Разведка', title: c => `За разведку ${c.gen}` },
 ];
-// Районы полётов. Дальний рейс — за пределами Калужской и Тульской областей.
+// Районы полётов. Дальний рейс — за пределами Калужской области.
 const ZONES = [
   { id: 'kaluga', name: 'Калужская обл.' },
-  { id: 'tula', name: 'Тульская обл.' },
   { id: 'far', name: 'Дальний рейс' },
 ];
 // «За дальний полёт»: степень по результату вылета
@@ -66,7 +65,6 @@ const METALS = {
 const METAL_NAMES = { gold: 'золото', silver: 'серебро', bronze: 'бронза', steel: 'сталь' };
 const ROMAN = { 1: 'I', 2: 'II', 3: 'III', 4: 'IV' };
 const RIBBONS = {
-  stGeorge: ['#e8871e', '#1a1a1a', '#e8871e', '#1a1a1a', '#e8871e', '#1a1a1a', '#e8871e'],
   far: ['#1b4f8a', '#9cc3e6', '#ffffff', '#9cc3e6', '#1b4f8a'],
   valor: ['#2a5aa8', '#a7abb0', '#a7abb0', '#a7abb0', '#a7abb0', '#a7abb0', '#2a5aa8'],
   persist: ['#7a1712', '#d4a53a', '#7a1712', '#d4a53a', '#7a1712'],
@@ -79,6 +77,7 @@ const MONTHS_GEN = ['января', 'февраля', 'марта', 'апрел�
 const MONTHS_SHORT = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
 const WEEKDAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 const DAYS_FORMS = ['день', 'дня', 'дней'];
+const TARGET_FORMS = ['цель', 'цели', 'целей'];
 const DAY = 86400000;
 
 /* ================= Даты и форматирование ================= */
@@ -90,6 +89,7 @@ const addDays = (iso, n) => { const d = parseISO(iso); d.setDate(d.getDate() + n
 const diffDays = (a, b) => Math.round((parseISO(b) - parseISO(a)) / DAY);
 const fmtLong = iso => { const d = parseISO(iso); return `${d.getDate()} ${MONTHS_GEN[d.getMonth()]}`; };
 const fmtShort = iso => { const d = parseISO(iso); return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}`; };
+const fmtStamp = ms => { const d = new Date(ms); return `${pad(d.getDate())}.${pad(d.getMonth() + 1)} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
 const fmtPts = v => String(v).replace('.', ',');
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 function plural(n, forms) {
@@ -125,9 +125,10 @@ function save() {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(db)); } catch (e) { /* см. выше */ }
 }
 const uid = () => Math.random().toString(36).slice(2, 10);
-const seed = () => ({ passwords: { p1: null, p2: null }, session: null, sorties: [] });
+const seed = () => ({ passwords: { p1: null, p2: null }, session: null, sorties: [], reports: [] });
 
 let db = (DEMO && readStore()) || seed();
+db.reports = db.reports || [];
 save();
 
 async function hashPass(pilotId, pass) {
@@ -141,47 +142,23 @@ async function hashPass(pilotId, pass) {
 
 /* ================= Настоящая версия: Firebase ================= */
 let cloud = null;
-const remote = { uid: null, mine: [], boards: [], lastBoard: '' };
-
-// Для второго пилота — только даты, результаты, классы и номера целей. Позывные и заметки остаются у автора.
-function boardProjection(pid) {
-  const numbers = new Map();
-  return sortiesOf(pid).map(s => {
-    const k = targetKey(s.target);
-    if (!numbers.has(k)) numbers.set(k, numbers.size + 1);
-    return { id: s.id, date: s.date, result: s.result, cls: s.cls || '', zone: s.zone || '', createdAt: s.createdAt || 0, t: numbers.get(k) };
-  });
-}
+const remote = { uid: null, sorties: [], reports: [] };
 
 function rebuildFromCloud() {
-  const mine = remote.mine.map(({ uid: _, ...s }) => s);
-  const others = remote.boards
-    .filter(b => b.uid !== remote.uid && pilotById(b.pilot) && b.pilot !== db.session)
-    .flatMap(b => (b.sorties || []).map(x => ({
-      id: `b-${b.pilot}-${x.id}`, pilot: b.pilot, date: x.date, result: x.result, cls: x.cls, zone: x.zone,
-      createdAt: x.createdAt || 0, target: `#${x.t}`, note: '',
-    })));
-  db.sorties = [...mine, ...others].filter(s => RESULTS[s.result] && s.date);
+  db.sorties = remote.sorties.map(({ uid: _, ...s }) => s).filter(s => pilotById(s.pilot) && RESULTS[s.result] && s.date);
+  db.reports = remote.reports.map(({ uid: _, ...r }) => r).filter(r => pilotById(r.pilot));
 }
 
-function publishIfChanged() {
-  if (!db.session) return;
-  const board = boardProjection(db.session), json = JSON.stringify(board);
-  if (json === remote.lastBoard) return;
-  remote.lastBoard = json;
-  cloud.publishBoard(db.session, board).catch(onCloudError);
-}
-
-// Пока открыто окно вылета, не перерисовываем — иначе сотрём то, что пилот набирает
+// Пока открыто окно, не перерисовываем — иначе сотрём то, что пилот набирает
 let renderDeferred = false;
 function softRender() {
-  if (ui.editing || ui.showOrder) { renderDeferred = true; return; }
+  if (ui.editing || ui.showOrder || ui.reporting) { renderDeferred = true; return; }
   render();
 }
 
 function authMessage(e) {
   const code = (e && e.code) || '';
-  if (code.includes('invalid-credential') || code.includes('wrong-password') || code.includes('user-not-found')) return 'Неверный ключ или пароль';
+  if (code.includes('invalid-credential') || code.includes('wrong-password') || code.includes('user-not-found')) return 'Неверный пароль';
   if (code.includes('too-many-requests')) return 'Слишком много попыток. Подожди пару минут';
   if (code.includes('network')) return 'Нет связи с базой. Проверь интернет';
   if (code.includes('requires-recent-login')) return 'Для смены пароля выйди и войди заново';
@@ -191,19 +168,20 @@ function authMessage(e) {
 
 function onCloudError(e) {
   const code = (e && e.code) || '';
+  lastError = code || String(e && e.message || e).slice(0, 200);
   toast(code.includes('permission') ? 'База не пускает. Проверь правила Firestore' : 'Нет связи с базой. Записи сохранятся, когда появится интернет');
 }
 
 function onCloudUser(u) {
   remote.uid = u ? u.uid : null;
-  remote.mine = [];
-  remote.boards = [];
-  remote.lastBoard = '';
+  remote.sorties = [];
+  remote.reports = [];
   ui.booting = false;
   if (!u) {
     db.session = null;
     ui.pendingPilot = null;
     db.sorties = [];
+    db.reports = [];
     return render();
   }
   const pilot = PILOTS.find(p => p.email.toLowerCase() === String(u.email).toLowerCase());
@@ -212,14 +190,8 @@ function onCloudUser(u) {
     cloud.signOut();
     return;
   }
-  if (u.passwordChanged) {
-    db.session = pilot.id;
-    ui.pendingPilot = null;
-  } else {
-    db.session = null;
-    ui.pendingPilot = pilot.id;
-  }
-  rebuildFromCloud();
+  db.session = u.passwordChanged ? pilot.id : null;
+  ui.pendingPilot = u.passwordChanged ? null : pilot.id;
   render();
 }
 
@@ -230,8 +202,8 @@ async function startCloud() {
     cloud = await import('./cloud.js');
     cloud.init(CONFIG.firebase, {
       onUser: onCloudUser,
-      onMine: list => { remote.mine = list; rebuildFromCloud(); publishIfChanged(); softRender(); },
-      onBoards: list => { remote.boards = list; rebuildFromCloud(); softRender(); },
+      onSorties: list => { remote.sorties = list; rebuildFromCloud(); softRender(); },
+      onReports: list => { remote.reports = list; rebuildFromCloud(); softRender(); },
       onError: onCloudError,
     });
   } catch (e) {
@@ -248,7 +220,6 @@ function pushSorties(ids) {
     const s = db.sorties.find(x => x.id === id);
     if (s) cloud.saveSortie(s).catch(onCloudError);
   });
-  publishIfChanged();
 }
 
 /* ================= Подсчёты ================= */
@@ -262,34 +233,33 @@ const sortiesOf = id => db.sorties.filter(s => s.pilot === id)
 const daysLeft = () => Math.max(0, diffDays(todayISO(), CONFIG.deadline) + 1);
 const targetKey = t => t.trim().toLowerCase().replace(/ё/g, 'е');
 
-// По каждой цели в зачёт идёт только лучший результат: повторный вылет добавляет разницу, если она есть.
+// Звёзды складываются: две «Дозаправки» по ¼ дают ½. Отдельно считаем поражённые цели — они решают итог.
 function ledger(id) {
-  const best = {};
   let total = 0;
+  const targets = new Set(), hitTargets = new Set();
   const entries = sortiesOf(id).map(s => {
-    const k = targetKey(s.target), pts = RESULTS[s.result].points, prev = best[k] || 0;
-    const delta = Math.max(0, pts - prev);
-    best[k] = Math.max(prev, pts);
-    total += delta;
-    return { s, delta, total };
+    const pts = RESULTS[s.result].points;
+    total += pts;
+    targets.add(targetKey(s.target));
+    if (s.result === 'hit') hitTargets.add(targetKey(s.target));
+    return { s, delta: pts, total, hits: hitTargets.size };
   });
-  return { entries, total, best };
+  return { entries, total, targets: targets.size, hits: hitTargets.size };
 }
 
 function stats(id) {
-  const { entries, total, best } = ledger(id);
-  const vals = Object.values(best);
+  const l = ledger(id);
   return {
-    count: entries.length,
-    points: total,
-    targets: vals.length,
-    hits: vals.filter(v => v >= 1).length,
-    acc: vals.length ? Math.round(total / vals.length * 100) : 0,
+    count: l.entries.length,
+    points: l.total,
+    targets: l.targets,
+    hits: l.hits,
+    acc: l.targets ? Math.round(l.hits / l.targets * 100) : 0,
   };
 }
 
 function rank(points) {
-  if (points >= CONFIG.goal) return 'Ас';
+  if (points >= 3) return 'Ас';
   if (points >= 2) return 'Капитан';
   if (points >= 1.5) return 'Старший лейтенант';
   if (points >= 1) return 'Лейтенант';
@@ -297,16 +267,17 @@ function rank(points) {
   return 'Курсант';
 }
 
+// Прогноз — по поражённым целям: только они решают итог операции
 function forecast(st) {
-  const goal = CONFIG.goal, left = goal - st.points, n = daysLeft();
-  if (left <= 0) return '✓ Задание выполнено';
+  const goal = CONFIG.goal, left = goal - st.hits, n = daysLeft();
+  if (left <= 0) return '✓ Задание выполнено: три цели поражены';
   if (n === 0) return 'Операция завершена, задание не выполнено';
-  const tail = `ещё ${fmtPts(left)}★ за ${n} ${plural(n, DAYS_FORMS)}`;
-  if (st.points === 0) return `Нужно ${tail}`;
-  const pace = st.points / Math.max(1, diffDays(CONFIG.start, todayISO()));
+  const tail = `ещё ${left} ${plural(left, TARGET_FORMS)} за ${n} ${plural(n, DAYS_FORMS)}`;
+  if (st.hits === 0) return `Нужно поразить ${tail}`;
+  const pace = st.hits / Math.max(1, diffDays(CONFIG.start, todayISO()));
   const eta = addDays(todayISO(), Math.ceil(left / pace));
-  if (eta <= CONFIG.deadline) return `Прогноз при текущем темпе: ${goal}★ к ${fmtLong(eta)}`;
-  return `Отстаёт от графика: нужно ${tail}`;
+  if (eta <= CONFIG.deadline) return `Прогноз: ${goal}-я цель к ${fmtLong(eta)}`;
+  return `Отстаёт от графика: ${tail}`;
 }
 
 /* ================= Звук (синтез, без файлов) ================= */
@@ -542,6 +513,7 @@ const ICONS = {
   hangar: svgIcon('<path d="M3 20v-8a9 7 0 0 1 18 0v8"/><path d="M2 20h20M8 20v-6h8v6"/>'),
   plus: svgIcon('<path d="M12 5v14M5 12h14"/>'),
   pin: svgIcon('<path d="M12 21s-6-5.5-6-11a6 6 0 0 1 12 0c0 5.5-6 11-6 11z"/><circle cx="12" cy="10" r="2.2"/>'),
+  wrench: svgIcon('<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/>'),
   sun: svgIcon('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>'),
   moon: svgIcon('<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>'),
   soundOn: svgIcon('<path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/>'),
@@ -559,7 +531,7 @@ const GLYPHS = {
 const glyphIcon = g => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${GLYPHS[g]('currentColor')}</svg>`;
 
 /* ================= Графика: награды ================= */
-// Пятиугольная колодка с лентой — как у советских медалей и орденов
+// Пятиугольная колодка с лентой — как у советских медалей
 function ribbonBlock(id, stripes, M) {
   const pent = 'M10 3H50V33L30 45L10 33Z', w = 40 / stripes.length;
   return `<clipPath id="${id}p"><path d="${pent}"/></clipPath>
@@ -608,23 +580,6 @@ const persistSVG = () => roundMedal(RIBBONS.persist, 'gold', M => `
   <circle cx="30" cy="73.5" r="10" fill="none" stroke="${M[2]}" stroke-width="1.5" stroke-dasharray="3 1.6"/>
   <g transform="translate(25 58.5) scale(.42) rotate(-90 12 12)">${GLYPHS.plane(M[2])}</g>
   <path d="${starPath(30, 74.5, 5)}" fill="#c8332b" stroke="${M[2]}" stroke-width=".4"/>`);
-
-// Орден Славы: гранёная звезда, в центре небо с самолётом и красная лента «СЛАВА»
-function glorySVG(deg) {
-  const id = 'gl' + (++gradSeq), d = deg || 3;
-  const star = d === 1 ? METALS.gold : METALS.silver, center = d === 3 ? METALS.silver : METALS.gold;
-  return `<svg class="medal" viewBox="0 0 60 98" aria-hidden="true">
-    ${metalGrad(id + 'c', center)}
-    ${ribbonBlock(id, RIBBONS.stGeorge, star)}
-    ${deg ? degreePlaque(deg, star) : ''}
-    ${facetStar(30, 73, 23, star)}
-    <circle cx="30" cy="73" r="9.6" fill="url(#${id}c)" stroke="${center[2]}" stroke-width=".8"/>
-    <circle cx="30" cy="72.6" r="7.4" fill="#34588c"/>
-    <g transform="translate(24.8 66.2) scale(.44)">${GLYPHS.plane('#f3efe2')}</g>
-    <rect x="21.4" y="77" width="17.2" height="5.2" rx="1" fill="#b3261e" stroke="${center[2]}" stroke-width=".4"/>
-    <text x="30" y="81" text-anchor="middle" font-family="Russo One, sans-serif" font-size="3.9" letter-spacing=".3" fill="#f6e7b0">СЛАВА</text>
-  </svg>`;
-}
 
 // Знак классности: крылья, синий эмалевый щит, звезда и цифра класса
 function badgeSVG(num, metal) {
@@ -710,32 +665,34 @@ function ribbonSVG(stripes) {
 }
 
 /* ================= Награды: табель и подсчёт ================= */
-const GROUPS = [['signs', 'Знаки отличия'], ['orders', 'Ордена'], ['special', 'Особые медали']];
+const GROUPS = [['signs', 'Знаки отличия'], ['orders', 'Высшая награда'], ['special', 'Особые медали']];
 
-// degrees — вручается по степеням (III → II → I); once — только один раз
+// degrees — вручается по степеням (III → II → I)
 const AWARDS = [
   { id: 'first', group: 'signs', name: 'Первый пошёл', instr: 'знаком «Первый пошёл»', cond: 'За первый вылет — с любым результатом', art: firstSVG },
-  { id: 'class-3', group: 'signs', name: 'Военный лётчик 3-го класса', instr: 'знаком «Военный лётчик 3-го класса»', cond: 'Набрать 1★', art: () => badgeSVG(3, 'bronze') },
-  { id: 'class-2', group: 'signs', name: 'Военный лётчик 2-го класса', instr: 'знаком «Военный лётчик 2-го класса»', cond: 'Набрать 2★', art: () => badgeSVG(2, 'silver') },
-  { id: 'class-1', group: 'signs', name: 'Военный лётчик 1-го класса', instr: 'знаком «Военный лётчик 1-го класса»', cond: `Набрать ${CONFIG.goal}★`, art: () => badgeSVG(1, 'gold') },
+  { id: 'class-3', group: 'signs', name: 'Военный лётчик 3-го класса', instr: 'знаком «Военный лётчик 3-го класса»', cond: 'Первая поражённая цель', art: () => badgeSVG(3, 'bronze') },
+  { id: 'class-2', group: 'signs', name: 'Военный лётчик 2-го класса', instr: 'знаком «Военный лётчик 2-го класса»', cond: 'Вторая поражённая цель', art: () => badgeSVG(2, 'silver') },
+  { id: 'class-1', group: 'signs', name: 'Военный лётчик 1-го класса', instr: 'знаком «Военный лётчик 1-го класса»', cond: 'Третья поражённая цель — задание операции выполнено', art: () => badgeSVG(1, 'gold') },
   { id: 'veteran', group: 'signs', name: 'Ветеран ВВС', instr: 'знаком «Ветеран ВВС»', cond: 'Собрать все три знака классности', art: veteranSVG },
-  { id: 'glory', group: 'orders', degrees: true, name: 'Орден Славы', instr: 'орденом Славы', cond: 'Цель поражена на целую звезду. Первая — III степени, вторая — II, третья — I', ribbon: RIBBONS.stGeorge, art: glorySVG },
-  { id: 'hero', group: 'orders', name: 'Золотая Звезда Героя эскадрильи', instr: 'Золотой Звездой Героя эскадрильи', cond: 'Высшая награда. Медали за цели всех четырёх металлов — золото, серебро, бронза и сталь, каждая за другую цель', art: heroSVG },
+  { id: 'hero', group: 'orders', name: 'Золотая Звезда Героя эскадрильи', instr: 'Золотой Звездой Героя эскадрильи', cond: 'Медали за цели всех четырёх металлов — золото, серебро, бронза и сталь — в четырёх разных классах', art: heroSVG },
   ...FAR_LEVELS.map(l => ({
     id: `far-${l.deg}`, group: 'special', family: 'far', name: `За дальний полёт ${ROMAN[l.deg]} степени`, instr: `медалью «За дальний полёт» ${ROMAN[l.deg]} степени`,
-    cond: `«${RESULTS[l.result].label}» за пределами Калужской и Тульской областей`, ribbon: RIBBONS.far, art: () => farSVG(l.metal, l.deg),
+    cond: `«${RESULTS[l.result].label}» за пределами Калужской области`, ribbon: RIBBONS.far, art: () => farSVG(l.metal, l.deg),
   })),
   { id: 'valor', group: 'special', degrees: true, name: 'За отвагу', instr: 'медалью «За отвагу»', cond: '«Отказ диспетчера» от новой цели. Первый — III степени, второй — II, третий — I', ribbon: RIBBONS.valor, art: valorSVG },
   { id: 'persist', group: 'special', name: 'За настойчивость', instr: 'медалью «За настойчивость»', cond: 'Больше пяти отказов от разных целей', ribbon: RIBBONS.persist, art: persistSVG },
   ...CLASSES.flatMap(c => DEGREES.map(d => ({
     id: `m-${c.id}-${d.result}`, group: 'class', cls: c, degrees: true, name: d.title(c), instr: `медалью «${d.title(c)}»`,
-    cond: `«${RESULTS[d.result].label}» по цели класса «${c.name}»`, ribbon: c.ribbon, art: deg => classMedalSVG(c, d.metal, deg),
+    cond: d.need ? `Набрать ${fmtPts(d.need)}★ в классе «${c.name}»` : `«Разведка» по цели класса «${c.name}»`,
+    ribbon: c.ribbon, art: deg => classMedalSVG(c, d.metal, deg),
   }))),
 ];
 
 const degreeOf = n => (n >= 3 ? 1 : n === 2 ? 2 : 3);
+const awardArt = (a, count) => a.art(a.degrees && count ? degreeOf(count) : undefined);
+const awardTitle = (a, count) => (a.degrees ? `${a.instr} ${ROMAN[degreeOf(count)]} степени` : a.instr);
 
-// Можно ли раздать каждому металлу свою цель (все цели разные)
+// Можно ли раздать каждому металлу свой класс (все классы разные)
 function canAssign(sets, used = new Set()) {
   if (!sets.length) return true;
   const [first, ...rest] = sets;
@@ -748,22 +705,7 @@ function canAssign(sets, used = new Set()) {
   return false;
 }
 
-// Дата, когда у пилота впервые собрались медали за цели всех четырёх металлов, каждая за свою цель
-function heroDate(entries) {
-  const metalOf = Object.fromEntries(DEGREES.map(d => [d.result, d.metal]));
-  const byMetal = { gold: new Set(), silver: new Set(), bronze: new Set(), steel: new Set() };
-  for (const { s } of entries) {
-    const metal = metalOf[s.result];
-    if (!metal || !classById(s.cls)) continue;
-    byMetal[metal].add(targetKey(s.target));
-    if (canAssign(Object.values(byMetal))) return s.date;
-  }
-  return null;
-}
-const awardArt = (a, count) => a.art(a.degrees && count ? degreeOf(count) : undefined);
-const awardTitle = (a, count) => (a.degrees ? `${a.instr} ${ROMAN[degreeOf(count)]} степени` : a.instr);
-
-// Какие награды есть у пилота: { id: { dates: [...], count } }. Одна цель даёт одну ступень.
+// Какие награды есть у пилота: { id: { dates: [...], count } }
 function earnedAwards(pid) {
   const { entries } = ledger(pid);
   const units = {}, seen = {};
@@ -775,24 +717,49 @@ function earnedAwards(pid) {
     }
     (units[id] || (units[id] = [])).push(date);
   };
+
   if (entries.length) add('first', entries[0].s.date);
+  // знаки классности — только за поражённые цели
   [['class-3', 1], ['class-2', 2], ['class-1', CONFIG.goal]].forEach(([id, need]) => {
-    const e = entries.find(x => x.total >= need);
+    const e = entries.find(x => x.hits >= need);
     if (e) add(id, e.s.date);
   });
   if (units['class-1']) add('veteran', units['class-1'][0]);
-  const hero = heroDate(entries);
-  if (hero) add('hero', hero);
 
   for (const { s } of entries) {
-    const k = targetKey(s.target);
-    if (s.result === 'hit') add('glory', s.date, k);
-    if (s.result === 'refused') add('valor', s.date, k);
-    else if (classById(s.cls)) add(`m-${s.cls}-${s.result}`, s.date, k);
+    if (s.result === 'refused') add('valor', s.date, targetKey(s.target));
     const far = s.zone === 'far' && FAR_LEVELS.find(l => l.result === s.result);
-    if (far) add(`far-${far.deg}`, s.date, k);
+    if (far) add(`far-${far.deg}`, s.date, targetKey(s.target));
   }
   if ((units.valor || []).length > 5) add('persist', units.valor[5]);
+
+  // Медали за класс — по звёздам, накопленным в классе: ¼ — бронза, ½ — серебро, 1 — золото.
+  // Каждая целая звезда в классе — новое золото; после него счёт бронзы и серебра начинается заново.
+  for (const c of CLASSES) {
+    let acc = 0, got = {};
+    for (const { s } of entries) {
+      if (s.cls !== c.id || s.result === 'refused') continue;
+      if (s.result === 'recon') { add(`m-${c.id}-recon`, s.date); continue; }
+      acc += RESULTS[s.result].points;
+      if (acc >= 1) {
+        while (acc >= 1) { add(`m-${c.id}-hit`, s.date); acc -= 1; }
+        got = {};
+      } else if (acc >= 0.5 && !got.silver) {
+        add(`m-${c.id}-lowfly`, s.date);
+        got.silver = true;
+      } else if (acc >= 0.25 && !got.bronze && !got.silver) {
+        add(`m-${c.id}-refuel`, s.date);
+        got.bronze = true;
+      }
+    }
+  }
+
+  // Золотая Звезда: четыре металла в четырёх разных классах
+  const medalDates = [...new Set(Object.entries(units).filter(([id]) => id.startsWith('m-')).flatMap(([, d]) => d))].sort();
+  for (const date of medalDates) {
+    const sets = DEGREES.map(d => new Set(CLASSES.filter(c => (units[`m-${c.id}-${d.result}`] || []).some(x => x <= date)).map(c => c.id)));
+    if (canAssign(sets)) { add('hero', date); break; }
+  }
 
   const out = {};
   for (const [id, dates] of Object.entries(units)) out[id] = { dates, count: dates.length };
@@ -815,7 +782,7 @@ const FUSELAGE = 'M24 46C70 40 130 36 175 35L262 36C276 37 286 41 292 46L292 58C
 
 function planeSVG(pilot, points) {
   const id = 'pl-' + pilot.id, color = pilotColor(pilot.id);
-  const slots = Math.max(CONFIG.goal, Math.ceil(points));
+  const slots = Math.max(3, Math.ceil(points));
   const gap = Math.min(19, 76 / slots), R = Math.min(7.5, gap * 0.42);
   let stars = '';
   for (let k = 0; k < slots; k++) {
@@ -825,7 +792,7 @@ function planeSVG(pilot, points) {
       ? starFill(d, fill, 1.2)
       : `<path d="${d}" fill="none" stroke="rgba(236,238,232,.4)" stroke-width="1.2" stroke-dasharray="2 2" stroke-linejoin="round"/>`;
   }
-  return `<svg class="plane" viewBox="0 0 320 96" role="img" aria-label="Борт ${esc(pilot.board)}: ${fmtPts(points)} из ${CONFIG.goal} звёзд">
+  return `<svg class="plane" viewBox="0 0 320 96" role="img" aria-label="Борт ${esc(pilot.board)}: ${fmtPts(points)} звёзд">
     <defs>
       <linearGradient id="${id}-body" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6d775f"/><stop offset=".55" stop-color="#4b5445"/><stop offset="1" stop-color="#353b32"/></linearGradient>
       <linearGradient id="${id}-glass" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c3d9e6"/><stop offset="1" stop-color="#4f6a7a"/></linearGradient>
@@ -950,6 +917,9 @@ const ui = {
   editing: null,        // null | 'new' | id вылета
   newDate: todayISO(),
   showOrder: false,
+  reporting: false,     // открыто окно «Рапорт технику»
+  reportContext: '',
+  logPilot: null,       // чей журнал открыт
   awardsView: 'pilots', // pilots | table | order
   awardsPilot: null,
 };
@@ -975,8 +945,7 @@ function render() {
   document.querySelectorAll('dialog[data-modal]').forEach(dlg => {
     const kind = dlg.dataset.modal;
     dlg.addEventListener('close', () => {
-      if (kind === 'sortie' && ui.editing) closeModal(kind);
-      if (kind === 'order' && ui.showOrder) closeModal(kind);
+      if ((kind === 'sortie' && ui.editing) || (kind === 'order' && ui.showOrder) || (kind === 'report' && ui.reporting)) closeModal(kind);
     });
     dlg.addEventListener('click', e => { if (e.target === dlg) closeModal(kind); });
     if (!dlg.open) dlg.showModal();
@@ -986,6 +955,7 @@ function render() {
 function closeModal(kind) {
   if (kind === 'sortie') ui.editing = null;
   if (kind === 'order') ui.showOrder = false;
+  if (kind === 'report') ui.reporting = false;
   render();
 }
 
@@ -998,8 +968,8 @@ function toolButtons() {
 /* ---------- Вход ---------- */
 function viewLogin() {
   const hint = DEMO
-    ? `<div class="demo-hint"><b>Демо.</b> Ключи допуска:<br>${PILOTS.map(p => db.passwords[p.id]
-        ? `${esc(p.callsign)}: пароль уже задан`
+    ? `<div class="demo-hint"><b>Демо.</b> Ключи допуска для первого входа:<br>${PILOTS.map(p => db.passwords[p.id]
+        ? `${esc(p.callsign)}: ключ заменён паролем`
         : `${esc(p.callsign)}: <code>${p.key}</code>`).join('<br>')}</div>`
     : '';
   return `<div class="login-tools">${toolButtons()}</div>
@@ -1009,7 +979,7 @@ function viewLogin() {
     <p class="login-sub">Эскадрилья «${esc(CONFIG.squadron)}»</p>
     <form data-form="login" autocomplete="off">
       <label class="field"><span>Позывной</span><input name="callsign" required autocomplete="username" autocapitalize="words"></label>
-      <label class="field"><span>Ключ допуска или пароль</span><input name="secret" type="password" required autocomplete="current-password"></label>
+      <label class="field"><span>Пароль</span><input name="secret" type="password" required autocomplete="current-password"><small>При самом первом входе — ключ допуска. После смены пароля ключ больше не действует.</small></label>
       ${ui.loginError ? `<p class="form-error">${esc(ui.loginError)}</p>` : ''}
       <button class="btn btn-primary btn-block">На взлёт</button>
     </form>
@@ -1059,6 +1029,7 @@ async function doLogin(form) {
     ui.pendingPilot = pilot.id;
     return render();
   }
+  // пароль уже задан — ключ больше не принимается
   if (await hashPass(pilot.id, secret) !== saved) return fail('Неверный пароль');
   ui.loginError = '';
   ui.tab = 'hq';
@@ -1085,7 +1056,6 @@ async function doSetPass(form) {
     db.passwords[pilot.id] = await hashPass(pilot.id, p1);
   }
   db.session = pilot.id;
-  if (REMOTE) rebuildFromCloud();
   ui.pendingPilot = null;
   ui.tab = 'hq';
   ui.showOrder = true;
@@ -1123,7 +1093,7 @@ function viewShell(pilot) {
       <div class="brand">${emblem()}<div><div class="wordmark">Бортжурнал</div><div class="brand-sub">Операция «${esc(CONFIG.operation)}»</div></div></div>
       <div class="countdown" title="До ${fmtLong(CONFIG.deadline)} включительно"><span class="countdown-num">${n}</span><span class="countdown-lbl">${plural(n, DAYS_FORMS)}<br>осталось</span></div>
       <div class="whoami"><span class="dot" style="--c:${pilotColor(pilot.id)}"></span>${esc(pilot.callsign)}</div>
-      <div class="tools">${toolButtons()}</div>
+      <div class="tools"><button class="icon-btn only-wide" data-action="report" aria-label="Рапорт технику" title="Рапорт технику">${ICONS.wrench}</button>${toolButtons()}</div>
       <div class="break"></div>
     </header>
     <nav class="tabs" aria-label="Разделы">
@@ -1132,7 +1102,10 @@ function viewShell(pilot) {
       <button class="btn btn-primary btn-sm" data-action="new-sortie">+ Вылет</button>
     </nav>
     <main>${(views[ui.tab] || viewHQ)(pilot)}</main>
-    <footer class="motto">Выше всех · Дальше всех · Быстрее всех</footer>
+    <footer class="motto">
+      <button class="support-link" data-action="report">${ICONS.wrench}Что-то работает не так? Рапорт технику</button>
+      <div>Выше всех · Дальше всех · Быстрее всех</div>
+    </footer>
   </div>
   <nav class="bottom-nav" aria-label="Разделы">
     ${navBtn(TABS[0])}${navBtn(TABS[1])}
@@ -1140,6 +1113,7 @@ function viewShell(pilot) {
     ${navBtn(TABS[2])}${navBtn(TABS[3])}
   </nav>
   ${ui.editing ? viewDialog(pilot) : ''}
+  ${ui.reporting ? viewReportDialog() : ''}
   ${ui.showOrder ? `<dialog class="dialog order-dialog" data-modal="order" aria-label="Приказ № 001">${orderDoc(true)}</dialog>` : ''}`;
 }
 
@@ -1147,12 +1121,11 @@ function viewShell(pilot) {
 function viewHQ(pilot) {
   const legend = `<div class="legend">
     ${PILOTS.map(p => `<span class="legend-item"><span class="sw-line" style="--c:${pilotColor(p.id)}"></span>${esc(p.callsign)}</span>`).join('')}
-    <span class="legend-item"><span class="sw-dash"></span>План: ${CONFIG.goal}★ к ${fmtLong(CONFIG.deadline)}</span>
   </div>`;
   return `<section class="pilots">${PILOTS.map(p => pilotCard(p, p.id === pilot.id)).join('')}</section>
   <section class="panel">
     <div class="panel-head">
-      <h2>Динамика</h2>
+      <h2>Рейтинг ★</h2>
       <div class="segmented" role="group" aria-label="Вид">
         <button data-action="chart-mode" data-mode="chart" aria-pressed="${ui.chartMode === 'chart'}">График</button>
         <button data-action="chart-mode" data-mode="table" aria-pressed="${ui.chartMode === 'table'}">Таблица</button>
@@ -1160,10 +1133,10 @@ function viewHQ(pilot) {
     </div>
     ${ui.chartMode === 'chart' ? `${legend}<div id="chart" class="chart"></div>` : viewTable()}
   </section>
-  <div class="grid-2">${viewStake()}${viewFeed(pilot)}</div>`;
+  <div class="grid-2">${viewStake()}${viewFeed()}</div>`;
 }
 
-// Орденская планка: ленты медалей и орденов, мелкие знаки
+// Орденская планка: ленты медалей, мелкие знаки
 function planka(pid) {
   const earned = earnedAwards(pid);
   const items = AWARDS.filter(a => earned[a.id]);
@@ -1175,16 +1148,17 @@ function planka(pid) {
 function pilotCard(p, isMe) {
   const st = stats(p.id);
   const segs = Array.from({ length: CONFIG.goal }, (_, k) =>
-    `<span class="pbar-seg"><i style="width:${Math.min(1, Math.max(0, st.points - k)) * 100}%"></i></span>`).join('');
+    `<span class="pbar-seg"><i style="width:${st.hits > k ? 100 : 0}%"></i></span>`).join('');
   return `<article class="pilot-card" style="--pc:${pilotColor(p.id)}">
     <div class="pilot-head">
       <div>
         <div class="pilot-rank">${rank(st.points)} · борт ${esc(p.board)}</div>
         <h3 class="pilot-name">${esc(p.callsign)}${isMe ? '<span class="me-tag">ты</span>' : ''}</h3>
       </div>
-      <div class="pilot-score"><span class="num">${fmtPts(st.points)}</span><span class="of">/${CONFIG.goal}★</span></div>
+      <div class="pilot-score"><span class="num">${fmtPts(st.points)}</span><span class="of">★</span></div>
     </div>
     <div class="sky">${planeSVG(p, st.points)}</div>
+    <div class="pbar-label"><span>Поражено целей</span><b>${st.hits} из ${CONFIG.goal}</b></div>
     <div class="pbar" style="--goal:${CONFIG.goal}">${segs}</div>
     ${planka(p.id)}
     <dl class="pilot-stats">
@@ -1203,7 +1177,7 @@ function viewTable() {
     .map(e => `<tr><td>${fmtShort(e.s.date)}</td><td><span class="dot" style="--c:${pilotColor(e.pilot.id)}"></span> ${esc(e.pilot.callsign)}</td><td>${RESULTS[e.s.result].label}</td><td class="num">+${fmtPts(e.delta)}</td><td class="num">${fmtPts(e.total)}★</td></tr>`)
     .join('');
   return `<div class="table-wrap"><table class="data-table">
-    <thead><tr><th>Дата</th><th>Пилот</th><th>Результат</th><th class="num">В зачёт</th><th class="num">Итог</th></tr></thead>
+    <thead><tr><th>Дата</th><th>Пилот</th><th>Результат</th><th class="num">Очки</th><th class="num">Рейтинг</th></tr></thead>
     <tbody>${rows || '<tr><td colspan="5" class="empty">Вылетов пока не было</td></tr>'}</tbody>
   </table></div>`;
 }
@@ -1212,23 +1186,21 @@ function viewStake() {
   const over = daysLeft() === 0;
   const rows = PILOTS.map(p => {
     const st = stats(p.id);
-    const chip = st.points >= CONFIG.goal
+    const chip = st.hits >= CONFIG.goal
       ? '<span class="chip chip-ok">✓ Выполнено</span>'
-      : `<span class="chip chip-warn">⚠ ${over ? 'Выставляет ящик' : `Ещё ${fmtPts(CONFIG.goal - st.points)}★`}</span>`;
+      : `<span class="chip chip-warn">⚠ ${over ? 'Выставляет ящик' : `Поражено ${st.hits} из ${CONFIG.goal}`}</span>`;
     return `<li><span class="dot" style="--c:${pilotColor(p.id)}"></span><strong>${esc(p.callsign)}</strong>${chip}</li>`;
   }).join('');
   return `<section class="panel">
     <h2>Ставка</h2>
-    <div class="crate-row">${crateSVG()}<div><strong class="crate-title">Ящик ГСМ</strong><p class="muted">Выставляет каждый, кто не наберёт ${CONFIG.goal}★ до ${fmtLong(CONFIG.deadline)}.</p></div></div>
+    <div class="crate-row">${crateSVG()}<div><strong class="crate-title">Ящик ГСМ</strong><p class="muted">Выставляет каждый, кто до ${fmtLong(CONFIG.deadline)} не поразит ${CONFIG.goal} цели и не получит знак «Военный лётчик 1-го класса». Звёзды рейтинга на итог не влияют.</p></div></div>
     <ul class="stake-list">${rows}</ul>
   </section>`;
 }
 
-function viewFeed(pilot) {
-  const items = [...db.sorties].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 6).map(s => {
-    const mine = s.pilot === pilot.id;
-    return `<li><time>${fmtShort(s.date)}</time><span class="dot" style="--c:${pilotColor(s.pilot)}"></span><span class="feed-who">${esc(pilotById(s.pilot).callsign)}</span>${mine ? `<span class="feed-target">«${esc(s.target)}»</span>` : ''}<span class="feed-res">${resultIcon(s.result)}${RESULTS[s.result].label}</span></li>`;
-  }).join('');
+function viewFeed() {
+  const items = [...db.sorties].sort((a, b) => b.date.localeCompare(a.date) || (b.createdAt || 0) - (a.createdAt || 0)).slice(0, 8).map(s =>
+    `<li><time>${fmtShort(s.date)}</time><span class="dot" style="--c:${pilotColor(s.pilot)}"></span><span class="feed-who">${esc(pilotById(s.pilot).callsign)}</span><span class="feed-target">«${esc(s.target)}»</span><span class="feed-res">${resultIcon(s.result)}${RESULTS[s.result].label}</span></li>`).join('');
   return `<section class="panel"><h2>Сводка</h2>${items ? `<ol class="feed-list">${items}</ol>` : '<p class="empty">Вылетов пока не было. Эскадрилья ждёт первого.</p>'}</section>`;
 }
 
@@ -1248,7 +1220,7 @@ function drawChart() {
     const steps = entries.filter(e => e.delta > 0).map(e => ({ t: parseISO(e.s.date).getTime(), v: e.total }));
     return { p, steps, total, color: pilotColor(p.id) };
   });
-  const yMax = Math.max(CONFIG.goal, Math.ceil(Math.max(...series.map(s => s.total)))) + 1;
+  const yMax = Math.max(3, Math.ceil(Math.max(...series.map(s => s.total)))) + 1;
   const Y = v => m.t + ih - v / yMax * ih;
   const valueAt = (s, t) => s.steps.reduce((v, st) => (st.t <= t ? st.v : v), 0);
 
@@ -1266,10 +1238,6 @@ function drawChart() {
   }
   g += `<text class="axis-label" x="${m.l}" y="${H - 8}">${fmtShort(CONFIG.start)}</text>`;
   g += `<text class="axis-label" x="${W - m.r}" y="${H - 8}" text-anchor="end">${fmtShort(CONFIG.deadline)}</text>`;
-
-  g += `<line class="goal-line" x1="${m.l}" x2="${W - m.r}" y1="${Y(CONFIG.goal)}" y2="${Y(CONFIG.goal)}"/>`;
-  g += `<text class="goal-label" x="${W - m.r}" y="${Y(CONFIG.goal) - 6}" text-anchor="end">цель ${CONFIG.goal}★</text>`;
-  g += `<line class="plan-line" x1="${X(t0)}" y1="${Y(0)}" x2="${X(t1)}" y2="${Y(CONFIG.goal)}"/>`;
 
   const xn = X(tNow);
   const todayAnchor = xn - m.l < 30 ? 'start' : W - m.r - xn < 30 ? 'end' : 'middle';
@@ -1296,7 +1264,7 @@ function drawChart() {
   g += series.map((s, k) => `<circle class="hover-dot" data-k="${k}" r="5" style="fill:${s.color}" visibility="hidden"/>`).join('');
   g += `<rect class="hit" x="${m.l}" y="${m.t}" width="${iw}" height="${ih}" fill="transparent"/>`;
 
-  host.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Накопленные звёзды пилотов по дням">${g}</svg><div class="tooltip" hidden></div>`;
+  host.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Рейтинг пилотов по дням">${g}</svg><div class="tooltip" hidden></div>`;
 
   const svg = host.querySelector('svg'), tip = host.querySelector('.tooltip');
   const xh = host.querySelector('.crosshair'), dots = host.querySelectorAll('.hover-dot');
@@ -1331,28 +1299,28 @@ function drawChart() {
 }
 
 /* ---------- Журнал ---------- */
-function sortieItem(s, delta) {
+function sortieItem(s, editable) {
   const r = RESULTS[s.result], cls = classById(s.cls), zone = zoneById(s.zone);
   return `<article class="sortie">
     <div class="r-icon">${resultIcon(s.result)}</div>
     <div>
       <div class="sortie-top"><span class="sortie-target">Цель «${esc(s.target)}»</span>${cls ? `<span class="cls-tag">${glyphIcon(cls.glyph)}${cls.name}</span>` : ''}${zone ? `<span class="cls-tag">${ICONS.pin}${zone.name}</span>` : ''}</div>
-      <div class="sortie-res">${r.label}${r.points ? ` · в зачёт +${fmtPts(delta)}★` : ''}</div>
+      <div class="sortie-res">${r.label}${r.points ? ` · +${fmtPts(r.points)}★` : ''}</div>
       ${s.note ? `<p class="sortie-note">${esc(s.note)}</p>` : ''}
       <div class="sortie-date">${fmtLong(s.date)}</div>
     </div>
-    <button class="icon-btn" data-action="edit-sortie" data-id="${s.id}" aria-label="Править вылет" title="Править">✎</button>
+    ${editable ? `<button class="icon-btn" data-action="edit-sortie" data-id="${s.id}" aria-label="Править вылет" title="Править">✎</button>` : '<span></span>'}
   </article>`;
 }
 
 function viewLog(pilot) {
+  const who = pilotById(ui.logPilot) || pilot, own = who.id === pilot.id;
   const [y, mo] = ui.month.split('-').map(Number);
   const offset = (new Date(y, mo - 1, 1).getDay() + 6) % 7;
   const daysInMonth = new Date(y, mo, 0).getDate();
-  const { entries } = ledger(pilot.id);
-  const deltas = new Map(entries.map(e => [e.s.id, e.delta]));
+  const list = sortiesOf(who.id);
   const byDate = {};
-  entries.forEach(({ s }) => (byDate[s.date] = byDate[s.date] || []).push(s));
+  list.forEach(s => (byDate[s.date] = byDate[s.date] || []).push(s));
   const today = todayISO();
 
   let cells = WEEKDAYS.map(w => `<div class="cal-wd">${w}</div>`).join('');
@@ -1368,11 +1336,15 @@ function viewLog(pilot) {
   }
 
   const dayList = byDate[ui.selected] || [];
-  const canAdd = ui.selected <= today && ui.selected >= CONFIG.start;
+  const canAdd = own && ui.selected <= today && ui.selected >= CONFIG.start;
   const legend = [...RESULT_ORDER].reverse().map(k => `<span>${resultIcon(k)}${RESULTS[k].label}: ${fmtPts(RESULTS[k].points)}★</span>`).join('');
-  const item = s => sortieItem(s, deltas.get(s.id));
+  const item = s => sortieItem(s, own);
+  const switcher = `<div class="segmented sub-nav" role="group" aria-label="Чей журнал">${PILOTS.map(p =>
+    `<button data-action="log-pilot" data-id="${p.id}" aria-pressed="${p.id === who.id}"><span class="dot" style="--c:${pilotColor(p.id)}"></span> ${esc(p.callsign)}${p.id === pilot.id ? ' · мой' : ''}</button>`).join('')}</div>`;
+  const emptyDay = ui.selected > today ? 'Этот день ещё впереди' : ui.selected < CONFIG.start ? 'Операция тогда ещё не началась' : 'В этот день вылетов не было';
 
-  return `<div class="log-layout">
+  return `${switcher}
+  <div class="log-layout">
     <section class="panel">
       <div class="cal-head">
         <button class="icon-btn" data-action="month-prev" aria-label="Предыдущий месяц">‹</button>
@@ -1384,12 +1356,12 @@ function viewLog(pilot) {
     </section>
     <section class="panel">
       <div class="panel-head"><h2>${fmtLong(ui.selected)}</h2>${canAdd ? '<button class="btn btn-primary btn-sm" data-action="new-sortie">+ Вылет</button>' : ''}</div>
-      ${dayList.length ? dayList.map(item).join('') : `<p class="empty">${ui.selected > today ? 'Этот день ещё впереди' : ui.selected < CONFIG.start ? 'Операция тогда ещё не началась' : 'В этот день вылетов не было'}</p>`}
+      ${dayList.length ? dayList.map(item).join('') : `<p class="empty">${emptyDay}</p>`}
     </section>
   </div>
   <section class="panel">
-    <div class="panel-head"><h2>Все мои вылеты</h2><span class="muted">${entries.length}</span></div>
-    ${entries.length ? [...entries].reverse().map(e => item(e.s)).join('') : '<p class="empty">Журнал пуст. Первый вылет за тобой.</p>'}
+    <div class="panel-head"><h2>${own ? 'Все мои вылеты' : `Вылеты пилота ${esc(who.callsign)}`}</h2><span class="muted">${list.length}</span></div>
+    ${list.length ? [...list].reverse().map(item).join('') : `<p class="empty">${own ? 'Журнал пуст. Первый вылет за тобой.' : 'Пилот ещё не вылетал.'}</p>`}
   </section>`;
 }
 
@@ -1400,7 +1372,7 @@ function viewDialog(pilot) {
   const lastZone = [...mine].reverse().find(x => zoneById(x.zone))?.zone || '';
   const s = isNew
     ? { date: ui.newDate, target: '', result: 'recon', cls: '', zone: lastZone, note: '' }
-    : db.sorties.find(x => x.id === ui.editing);
+    : db.sorties.find(x => x.id === ui.editing && x.pilot === pilot.id);
   if (!s) return '';
   const targets = [...new Set(mine.map(x => x.target))];
   const chips = (name, items, value) => items.map(c => `<label class="cls-opt">
@@ -1416,7 +1388,7 @@ function viewDialog(pilot) {
       <label class="field"><span>Дата вылета</span><input type="date" name="date" value="${s.date}" min="${CONFIG.start}" max="${today}" required></label>
       <label class="field"><span>Цель (позывной)</span>
         <input name="target" list="targets" maxlength="24" value="${esc(s.target)}" placeholder="Например, Ласточка" autocapitalize="words" required>
-        <small>Только позывной. Никаких имён, фото, ссылок и адресов.</small>
+        <small>Только позывной. Никаких имён, фото, ссылок и адресов. Журнал видят оба пилота.</small>
       </label>
       <datalist id="targets">${targets.map(t => `<option value="${esc(t)}">`).join('')}</datalist>
       <fieldset class="field"><legend>Класс цели</legend>
@@ -1425,7 +1397,7 @@ function viewDialog(pilot) {
       </fieldset>
       <fieldset class="field"><legend>Район полётов</legend>
         <div class="cls-picker">${chips('zone', [...ZONES, { id: '', name: 'Не указан' }], s.zone)}</div>
-        <small>Дальний рейс — за пределами Калужской и Тульской областей.</small>
+        <small>Дальний рейс — за пределами Калужской области.</small>
       </fieldset>
       <fieldset class="field"><legend>Результат</legend><div class="result-picker">${opts}</div></fieldset>
       <label class="field"><span>Бортовые заметки</span><textarea name="note" rows="4" maxlength="1000" placeholder="Как прошёл вылет">${esc(s.note)}</textarea></label>
@@ -1484,27 +1456,115 @@ function saveSortie(form) {
   pushSorties(changed);
   ui.selected = data.date;
   ui.month = data.date.slice(0, 7);
+  ui.logPilot = pilot.id;
   closeModal('sortie');
 
   const r = RESULTS[data.result];
-  const delta = ledger(pilot.id).entries.find(e => e.s.id === id).delta;
   const after = earnedAwards(pilot.id);
   const count = aid => after[aid]?.count || 0, was = aid => before[aid]?.count || 0;
   // новые награды и новые степени (выше I степени не растёт — дальше только счётчик)
   const fresh = AWARDS.filter(a => count(a.id) > was(a.id) && (a.degrees ? was(a.id) < 3 : was(a.id) === 0));
 
-  if (delta > 0) queueFx({ type: 'star', fraction: delta, delta, label: delta < r.points ? 'Результат по цели улучшен' : STAR_LABELS[data.result] });
+  if (r.points > 0) queueFx({ type: 'star', fraction: r.points, delta: r.points, label: STAR_LABELS[data.result] });
   fresh.forEach(a => queueFx({ type: 'award', award: a, count: count(a.id), pilot }));
-  if (delta > 0 || fresh.length) return;
+  if (r.points > 0 || fresh.length) return;
 
   if (data.result === 'refused') {
     toast(count('valor') > was('valor') ? `Отказ записан. Всего отказов: ${count('valor')}` : 'Повторный заход после «нет» не засчитывается — пункт 5 Приказа');
-  } else if (r.points === 0) {
-    toast(`Разведданные приняты, товарищ ${pilot.callsign}`);
   } else {
-    toast('Цель уже в зачёте. Этот вылет — для души, а не для очков');
+    toast(`Разведданные приняты, товарищ ${pilot.callsign}`);
   }
   playEngine(1.8);
+}
+
+/* ---------- Рапорт технику ---------- */
+let lastError = '';
+window.addEventListener('error', e => { lastError = String(e.message || '').slice(0, 200); });
+window.addEventListener('unhandledrejection', e => {
+  const r = e.reason;
+  lastError = String((r && (r.code || r.message)) || r || '').slice(0, 200);
+});
+
+function reportContext() {
+  const tab = (TABS.find(t => t[0] === ui.tab) || [])[1] || ui.tab;
+  return [
+    `Раздел: ${tab}`,
+    `Экран: ${innerWidth}×${innerHeight}`,
+    `Тема: ${effectiveTheme() === 'dark' ? 'тёмная' : 'светлая'}`,
+    `Режим: ${REMOTE ? 'база' : 'демо'}`,
+    lastError && `Последняя ошибка: ${lastError}`,
+    `Браузер: ${navigator.userAgent.replace(/\s+/g, ' ').slice(0, 160)}`,
+  ].filter(Boolean).join('\n');
+}
+
+function viewReportDialog() {
+  return `<dialog class="dialog" data-modal="report" aria-labelledby="rep-title">
+    <form data-form="report">
+      <h2 id="rep-title" tabindex="-1" autofocus>Рапорт технику</h2>
+      <p class="muted">Опиши, что работает не так: где нажал, что ждал и что получилось. Рапорт сохранится в Ангаре, потом его можно передать на исправление.</p>
+      <label class="field"><span>Что случилось</span><textarea name="text" rows="5" maxlength="2000" required placeholder="Например: после сохранения вылета не появилась звезда"></textarea></label>
+      <details class="report-ctx"><summary>Что приложится автоматически</summary><pre>${esc(ui.reportContext)}</pre></details>
+      <div class="dialog-actions">
+        <span class="spacer"></span>
+        <button type="button" class="btn btn-ghost" data-action="close-report">Отмена</button>
+        <button class="btn btn-primary">Отправить рапорт</button>
+      </div>
+    </form>
+  </dialog>`;
+}
+
+function saveReport(form) {
+  const text = String(new FormData(form).get('text') || '').trim();
+  if (!text) return toast('Опиши, что случилось');
+  const report = { id: uid(), pilot: db.session, text, context: ui.reportContext, createdAt: Date.now() };
+  db.reports.push(report);
+  if (REMOTE) cloud.saveReport(report).catch(onCloudError);
+  save();
+  closeModal('report');
+  toast('Рапорт принят. Он лежит в Ангаре — передай его технику');
+}
+
+const reportsSorted = () => [...db.reports].sort((a, b) => b.createdAt - a.createdAt);
+const reportText = r => `Рапорт от ${pilotById(r.pilot)?.callsign || '?'}, ${fmtStamp(r.createdAt)}\n${r.text}\n${r.context || ''}`;
+
+function copyReports() {
+  const text = reportsSorted().map(reportText).join('\n\n———\n\n');
+  const done = () => toast('Рапорты скопированы. Вставь их в чат технику');
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(done, () => fallbackCopy(text, done));
+  } else {
+    fallbackCopy(text, done);
+  }
+}
+function fallbackCopy(text, done) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand('copy'); done(); } catch (e) { toast('Не удалось скопировать'); }
+  ta.remove();
+}
+
+function viewReports(pilot) {
+  const list = reportsSorted();
+  const items = list.map(r => `<article class="report">
+      <div class="report-meta"><span class="dot" style="--c:${pilotColor(r.pilot)}"></span>${esc(pilotById(r.pilot)?.callsign || '?')} · ${fmtStamp(r.createdAt)}</div>
+      <p class="report-text">${esc(r.text)}</p>
+      <details class="report-ctx"><summary>Подробности</summary><pre>${esc(r.context || '')}</pre></details>
+      ${r.pilot === pilot.id ? `<button class="btn btn-link report-del" data-action="delete-report" data-id="${r.id}">Удалить</button>` : ''}
+    </article>`).join('');
+  return `<section class="panel">
+    <div class="panel-head"><h2>Рапорты технику</h2><span class="muted">${list.length}</span></div>
+    <p class="muted">Если что-то работает не так — напиши рапорт. Потом нажми «Скопировать все» и передай технику на исправление.</p>
+    <div class="row report-actions">
+      <button class="btn btn-primary btn-sm" data-action="report">${ICONS.wrench}Новый рапорт</button>
+      ${list.length ? '<button class="btn btn-ghost btn-sm" data-action="copy-reports">Скопировать все</button>' : ''}
+    </div>
+    ${items || '<p class="empty">Рапортов пока нет. Всё летает.</p>'}
+  </section>`;
 }
 
 /* ---------- Награды ---------- */
@@ -1555,7 +1615,7 @@ function viewAwardTable() {
     FAR_LEVELS.slice().reverse().map(l => farSVG(l.metal, l.deg)),
     'За дальний полёт · IV–I степени',
     FAR_LEVELS.slice().reverse().map(l => `${ROMAN[l.deg]} — «${RESULTS[l.result].label}» (${METAL_NAMES[l.metal]})`).join(', '),
-    'Вылет за пределами Калужской и Тульской областей. Каждая степень вручается один раз',
+    'Вылет за пределами Калужской области. Каждая степень вручается один раз',
   );
   const row = a => {
     if (a.family === 'far') return a.id === 'far-1' ? farRow : '';
@@ -1565,14 +1625,14 @@ function viewAwardTable() {
     CLASSES.map(c => classMedalSVG(c, d.metal)),
     `${d.word} · ${METAL_NAMES[d.metal]}`,
     CLASSES.map(c => `«${d.title(c)}»`).join(', '),
-    `Вылет с результатом «${RESULTS[d.result].label}» по цели соответствующего класса`,
+    d.need ? `Накопить ${fmtPts(d.need)}★ по целям одного класса` : '«Разведка» по цели класса',
   )).join('');
   return `<section class="panel tabel">
     <h2>Табель наград эскадрильи «${esc(CONFIG.squadron)}»</h2>
-    <p class="muted">Повторные награждения идут по степеням: первое — III степени, второе — II, третье — I, высшая. Ступень даёт только новая цель: повторный заход на ту же цель степень не повышает.</p>
+    <p class="muted">Итог операции решают только знаки классности — они даются за поражённые цели. Звёзды рейтинга и медали — для славы. Повторные награждения идут по степеням: III, II, I.</p>
     ${GROUPS.map(([g, t]) => `<h3 class="sub">${t}</h3>${AWARDS.filter(a => a.group === g).map(row).join('')}`).join('')}
-    <h3 class="sub">Медали за цели</h3>
-    <p class="muted">Класс цели пилот выбирает при записи вылета: ${CLASSES.map(c => c.name).join(', ')}. Без класса — без медали. Каждая медаль вручается по степеням за новые цели этого класса.</p>
+    <h3 class="sub">Медали за класс цели</h3>
+    <p class="muted">Класс («локацию») пилот выбирает при записи вылета: ${CLASSES.map(c => c.name).join(', ')}. Звёзды внутри класса складываются: две «Дозаправки» по ¼ дают ½ — серебро, два «Бреющих полёта» — золото. Каждая следующая целая звезда в классе — новая степень золота.</p>
     ${classRows}
   </section>`;
 }
@@ -1602,15 +1662,15 @@ function orderDoc(inDialog) {
     <p>В целях повышения лётного мастерства личного состава <b>ПРИКАЗЫВАЮ:</b></p>
     <ol>
       <li>Провести операцию «${esc(CONFIG.operation)}» с ${fmtLong(CONFIG.start)} по ${fmtLong(CONFIG.deadline)} ${year} г., 23:59 по местному времени.</li>
-      <li>Каждому пилоту поразить не менее трёх целей, то есть набрать <b>${CONFIG.goal}★</b>.</li>
-      <li>Результаты вылетов засчитывать так:<ul class="order-scores">${scores}</ul></li>
-      <li>По каждой цели засчитывается только лучший результат. Повторный заход на уже поражённую цель — для души, а не для зачёта.</li>
+      <li>Каждому пилоту поразить не менее трёх разных целей. Поражённые цели подтверждаются знаками «Военный лётчик 3-го, 2-го и 1-го класса» — только они решают итог операции.</li>
+      <li>Звёзды рейтинга начислять так:<ul class="order-scores">${scores}</ul></li>
+      <li>Звёзды складываются: две «Дозаправки» по ¼ дают ½, два «Бреющих полёта» — целую звезду. Медали за класс цели вручаются по звёздам, накопленным в этом классе.</li>
       <li>Взлёт — только по команде диспетчера. Диспетчер — сама цель. Нет «добро» на взлёт — нет вылета. «Отказ диспетчера» заносится в журнал и засчитывается как отвага; повторный заход на ту же цель после «нет» — нарушение настоящего пункта.</li>
-      <li>Цели заносить в бортжурнал только позывными. Имена, фото, адреса и ссылки — разглашение военной тайны.</li>
+      <li>Цели заносить в бортжурнал только позывными. Имена, фото, адреса и ссылки — разглашение военной тайны. Бортжурналы открыты для обоих пилотов.</li>
       <li>Как учит песня «Первым делом самолёты»: сначала посадка, потом запись в бортжурнал. В полёте руки держать на штурвале, а не на телефоне.</li>
       <li>Приписки и выдуманные вылеты — позор на всю эскадрилью.</li>
-      <li>Пилот, не выполнивший задачу к сроку, выставляет эскадрилье ящик ГСМ. Не выполнили оба — выставляют оба.</li>
-      <li>Отличившихся награждать согласно табелю наград эскадрильи.</li>
+      <li>Пилот, не получивший к сроку знак «Военный лётчик 1-го класса», выставляет эскадрилье ящик ГСМ. Не получили оба — выставляют оба.</li>
+      <li>Отличившихся награждать согласно табелю наград эскадрильи. О неисправностях докладывать рапортом технику.</li>
       <li>Контроль за исполнением приказа оставляю за собой.</li>
     </ol>
     <footer class="order-sign"><span>Командир эскадрильи</span><span class="sign">Батя</span></footer>
@@ -1657,6 +1717,7 @@ function viewHangar(pilot) {
       </div>
     </section>
   </div>
+  ${viewReports(pilot)}
   <section class="panel${DEMO ? ' demo-panel' : ''}">
     ${DEMO ? '<h2>Демо-режим</h2><p class="muted">Все данные хранятся только в этом браузере. В настоящей версии они будут в защищённой базе.</p>' : ''}
     <div class="row">
@@ -1720,9 +1781,14 @@ document.addEventListener('click', e => {
       ui.selected = el.dataset.date;
       render();
       break;
+    case 'log-pilot':
+      ui.logPilot = el.dataset.id;
+      render();
+      break;
     case 'new-sortie': {
       const today = todayISO();
-      const useSelected = ui.tab === 'log' && ui.selected <= today && ui.selected >= CONFIG.start;
+      const ownLog = !ui.logPilot || ui.logPilot === db.session;
+      const useSelected = ui.tab === 'log' && ownLog && ui.selected <= today && ui.selected >= CONFIG.start;
       ui.newDate = useSelected ? ui.selected : today;
       ui.editing = 'new';
       render();
@@ -1740,10 +1806,29 @@ document.addEventListener('click', e => {
       if (REMOTE) cloud.deleteSortie(ui.editing).catch(onCloudError);
       db.sorties = db.sorties.filter(x => x.id !== ui.editing);
       save();
-      if (REMOTE) publishIfChanged();
       closeModal('sortie');
       toast('Вылет удалён');
       break;
+    case 'report':
+      ui.reportContext = reportContext();
+      ui.reporting = true;
+      render();
+      break;
+    case 'close-report':
+      closeModal('report');
+      break;
+    case 'copy-reports':
+      copyReports();
+      break;
+    case 'delete-report': {
+      if (!confirmTwice(el, 'Точно удалить?')) break;
+      const rid = el.dataset.id;
+      if (REMOTE) cloud.deleteReport(rid).catch(onCloudError);
+      db.reports = db.reports.filter(r => r.id !== rid);
+      save();
+      render();
+      break;
+    }
     case 'goto-awards':
       Object.assign(ui, { tab: 'awards', awardsView: 'pilots', awardsPilot: el.dataset.id });
       render();
@@ -1801,7 +1886,7 @@ document.addEventListener('click', e => {
       if (!confirmTwice(el, 'Точно сбросить?')) break;
       db = seed();
       save();
-      Object.assign(ui, { tab: 'hq', editing: null, showOrder: false, selected: todayISO(), month: todayISO().slice(0, 7) });
+      Object.assign(ui, { tab: 'hq', editing: null, showOrder: false, logPilot: null, selected: todayISO(), month: todayISO().slice(0, 7) });
       render();
       toast('Демо сброшено');
       break;
@@ -1832,7 +1917,7 @@ document.addEventListener('submit', e => {
   if (!form) return;
   e.preventDefault();
   if (soundOn()) audioCtx();
-  const handlers = { login: doLogin, 'set-pass': doSetPass, 'change-pass': doChangePass, sortie: saveSortie };
+  const handlers = { login: doLogin, 'set-pass': doSetPass, 'change-pass': doChangePass, sortie: saveSortie, report: saveReport };
   handlers[form.dataset.form](form);
 });
 
